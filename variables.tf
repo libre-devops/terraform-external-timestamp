@@ -1,19 +1,17 @@
-variable "location" {
-  description = "The location for this resource to be put in"
+variable "working_dir" {
   type        = string
+  description = "The working directory for the module"
+  default     = null
 }
 
-variable "name" {
-  type        = string
-  description = "The name of the VNet gateway"
+variable "linux_timestamp_format" {
+  type = string
+  description = "The format of the timestamp to generate on Linux"
+  default     = "+%d-%m-%Y:%H:%M"
 }
 
-variable "rg_name" {
-  description = "The name of the resource group, this module does not create a resource group, it is expecting the value of a resource group already exists"
-  type        = string
-}
-
-variable "tags" {
-  type        = map(string)
-  description = "A map of the tags to use on the resources that are deployed with this module."
+variable "windows_timestamp_format" {
+  type = string
+  description = "The format of the timestamp to generate on Windows"
+  default     = "dd-MM-yyyy:HH:mm"
 }
