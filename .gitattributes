@@ -8,6 +8,8 @@
 
 # Declare files that will always have CRLF line endings on checkout.
 *.sln text eol=crlf
+# The Windows OS-detection helper is only ever run by cmd.exe, so keep CRLF.
+*.cmd text eol=crlf
 
 # Denote all files that are truly binary and should not be modified.
 *.png binary

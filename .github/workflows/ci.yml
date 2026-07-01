@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate (analyzer, fmt, validate, test, tflint, trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -MinimumVersion 1.21.0 -Force -Scope CurrentUser
+          $results = Invoke-ScriptAnalyzer -Path ./Sort-LdoTerraform.ps1 -Settings ./PSScriptAnalyzerSettings.psd1
+          if ($results) { $results | Format-Table -AutoSize | Out-String | Write-Host }
+          $errors = @($results | Where-Object { $_.Severity -eq 'Error' })
+          if ($errors.Count -gt 0) { throw "PSScriptAnalyzer found $($errors.Count) error(s)." }
+          Write-Host 'PSScriptAnalyzer: clean.'
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Validate and test the module and examples
+        run: |
+          set -euo pipefail
+          for d in . examples/minimal examples/complete; do
+            echo "== ${d} =="
+            terraform -chdir="${d}" init -backend=false -input=false >/dev/null
+            terraform -chdir="${d}" validate
+          done
+          terraform test
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@b480b8fcdaa6f2c577f8e4fa799e89e756bb7c93 # v6.2.2
+
+      - name: TFLint (examples)
+        run: |
+          set -euo pipefail
+          for d in examples/*/; do
+            echo "== ${d%/} =="
+            ( cd "${d%/}" && tflint --init && tflint --recursive )
+          done
+
+      - name: Trivy config scan (report CRITICAL to LOW, non-blocking)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          exit-code: "0"
+
+      - name: Trivy config gate (fail on HIGH or CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  # This module creates no cloud resources, so the self-test just applies an example on the runner
+  # to prove the external data source actually executes and the outputs resolve, then destroys it.
+  # No backend, no cloud credentials, no cost. Runs on push/PR too, since there is nothing to gate.
+  self-test:
+    name: Self-test (apply, destroy)
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Apply then destroy each example
+        run: |
+          set -euo pipefail
+          for d in examples/minimal examples/complete; do
+            echo "== ${d} =="
+            terraform -chdir="${d}" init -input=false
+            terraform -chdir="${d}" apply -auto-approve
+            terraform -chdir="${d}" output
+            terraform -chdir="${d}" destroy -auto-approve
+          done
